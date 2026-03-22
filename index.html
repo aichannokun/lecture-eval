@@ -745,13 +745,27 @@
             align-items: center;
             gap: 8px;
             padding: 8px 10px;
-            margin: 10px 0 6px 0;
             background: #f8f8f8;
-            border: 1px solid #e8e8e8;
-            border-radius: 8px;
             font-size: 14px;
             font-weight: 600;
             color: #1a1a1a;
+            cursor: pointer;
+            user-select: none;
+            list-style: none;
+        }
+
+        .ts-header::-webkit-details-marker { display: none; }
+
+        .ts-block {
+            border: 1px solid #e8e8e8;
+            border-radius: 8px;
+            margin: 10px 0 6px 0;
+            overflow: hidden;
+        }
+
+        .ts-block > .slt,
+        .ts-block > .std {
+            padding: 6px 8px;
         }
 
         .ts-num {
@@ -778,6 +792,38 @@
             align-items: center;
             gap: 2px;
         }
+
+        /* 접힌 학생 카드 */
+        .sc .sc-body { display: none; }
+        .sc.expanded .sc-body { display: block; }
+
+        .sc .ct { cursor: pointer; }
+
+        .multi-slot {
+            font-size: 11px;
+            color: #888;
+            margin-left: 4px;
+            white-space: nowrap;
+        }
+
+        /* 순서이동 버튼 */
+        .reorder-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 20px;
+            height: 20px;
+            font-size: 10px;
+            cursor: pointer;
+            color: #888;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            background: #fff;
+            padding: 0;
+            line-height: 1;
+            font-family: inherit;
+        }
+        .reorder-btn:hover { background: #f0f0f0; color: #333; }
     </style>
     <script>function _d(b) { return decodeURIComponent(escape(atob(b))) } document.addEventListener("DOMContentLoaded", function () { document.querySelectorAll("[data-t]").forEach(function (el) { el.outerHTML = _d(el.getAttribute("data-t")) }); document.querySelectorAll("[data-ph]").forEach(function (el) { el.placeholder = _d(el.getAttribute("data-ph")) }); });</script>
 </head>
@@ -1435,30 +1481,48 @@
 
 
 
+        let cardOpen = {};
+        function getSlotNums(secId, sid) {
+            let sec = getSec(secId); if (!sec) return [];
+            let nums = [];
+            sec.timeSlots.forEach((ts, i) => { if ([...ts.active, ...ts.stopped].includes(sid)) nums.push(i + 1); });
+            return nums;
+        }
+
         function le(secId, tsId, sid, isStopped) {
             let row = getStudent(sid);
             if (!row) return document.createElement('div');
             let isDone = !!row.dd;
             let elapsed = ml(row.dd);
+            let cKey = secId + '_' + tsId + '_' + sid;
+            let isOpen = !!cardOpen[cKey];
             let card = document.createElement('div');
-            card.className = 'sc' + (isDone ? ' dc' : '');
+            card.className = 'sc' + (isDone ? ' dc' : '') + (isOpen ? ' expanded' : '');
 
             let top = document.createElement('div'); top.className = 'ct';
+            top.onclick = (e) => { if (['INPUT','SELECT','BUTTON'].includes(e.target.tagName)) return; cardOpen[cKey] = !cardOpen[cKey]; card.classList.toggle('expanded'); };
             let nameInp = document.createElement('input');
             nameInp.type = 'text'; nameInp.className = 'cn';
             nameInp.placeholder = '이름'; nameInp.value = row.name;
             nameInp.dataset.sid = sid; nameInp.dataset.field = 'name'; nameInp.dataset.secid = secId; nameInp.dataset.tsid = tsId;
             top.appendChild(nameInp);
 
+            let slotNums = getSlotNums(secId, sid);
+            if (slotNums.length > 1) {
+                let badge = document.createElement('span'); badge.className = 'multi-slot';
+                badge.textContent = '수업참여: ' + slotNums.join(', ');
+                top.appendChild(badge);
+            }
+
             if (isDone) {
                 let info = document.createElement('div'); info.className = 'cd';
-                let badge = document.createElement('span'); badge.className = 'db'; badge.innerHTML = ` ${row.dd}`;
+                let badge2 = document.createElement('span'); badge2.className = 'db'; badge2.innerHTML = ` ${row.dd}`;
                 let days = document.createElement('span'); days.className = 'de';
                 days.textContent = elapsed !== null ? `- ${elapsed}일 경과` : '';
                 let cancelBtn = document.createElement('button');
                 cancelBtn.className = 'sm muted'; cancelBtn.textContent = '취소';
                 cancelBtn.onclick = () => lk(secId, sid);
-                info.appendChild(badge); info.appendChild(days); info.appendChild(cancelBtn);
+                info.appendChild(badge2); info.appendChild(days); info.appendChild(cancelBtn);
                 top.appendChild(info);
             } else {
                 let doneBtn = document.createElement('button');
@@ -1467,6 +1531,8 @@
                 top.appendChild(doneBtn);
             }
             card.appendChild(top);
+
+            let body = document.createElement('div'); body.className = 'sc-body';
 
             let grid = document.createElement('div'); grid.className = 'sg';
             state.hd.forEach((h, sIdx) => {
@@ -1484,7 +1550,7 @@
                 item.appendChild(label); item.appendChild(sel);
                 grid.appendChild(item);
             });
-            card.appendChild(grid);
+            body.appendChild(grid);
 
             let actions = document.createElement('div'); actions.className = 'ca';
             let hd2 = !!row.dt;
@@ -1512,16 +1578,39 @@
                 stopBtn.onclick = () => lg(secId, tsId, sid);
                 actions.appendChild(stopBtn);
             }
-            card.appendChild(actions);
+            body.appendChild(actions);
+            card.appendChild(body);
             return card;
         }
 
 
 
 
+        let tsOpen = {};
+
+        function moveSec(secId, dir) {
+            let idx = state.sections.findIndex(s => s.id === secId);
+            let n = idx + dir; if (n < 0 || n >= state.sections.length) return;
+            [state.sections[idx], state.sections[n]] = [state.sections[n], state.sections[idx]];
+            lb(); lc();
+        }
+        function moveTS(secId, tsId, dir) {
+            let sec = getSec(secId); let idx = sec.timeSlots.findIndex(t => t.id === tsId);
+            let n = idx + dir; if (n < 0 || n >= sec.timeSlots.length) return;
+            [sec.timeSlots[idx], sec.timeSlots[n]] = [sec.timeSlots[n], sec.timeSlots[idx]];
+            lb(); lc();
+        }
+        function reorderBtns(id, idx, len, moveFn) {
+            let wrap = document.createElement('span'); wrap.style.cssText = 'display:inline-flex;gap:1px;margin-left:2px;';
+            if (idx > 0) { let up = document.createElement('button'); up.className = 'reorder-btn'; up.textContent = '▲'; up.onclick = (e) => { e.stopPropagation(); e.preventDefault(); moveFn(id, -1); }; wrap.appendChild(up); }
+            if (idx < len - 1) { let dn = document.createElement('button'); dn.className = 'reorder-btn'; dn.textContent = '▼'; dn.onclick = (e) => { e.stopPropagation(); e.preventDefault(); moveFn(id, 1); }; wrap.appendChild(dn); }
+            return wrap;
+        }
+
         function ld(secId) {
             let s = getSec(secId);
             if (!s) return document.createElement('div');
+            let secIdx = state.sections.indexOf(s);
             let wrapper = document.createElement('div');
 
             let details = document.createElement('details');
@@ -1536,6 +1625,7 @@
 
             let icons = document.createElement('span');
             icons.className = 'sec-icons';
+            icons.appendChild(reorderBtns(secId, secIdx, state.sections.length, (id, dir) => moveSec(id, dir)));
             icons.appendChild(iconBtn('clock', true, '시간대 추가', (e) => { e.stopPropagation(); e.preventDefault(); openAddTimeSlotModal(secId); }));
             icons.appendChild(iconSep());
             icons.appendChild(iconBtn('pencil', false, '편집', (e) => {
@@ -1554,18 +1644,25 @@
 
             /* 시간대별 렌더링 */
             s.timeSlots.forEach((ts, tsIdx) => {
-                let tsHeader = document.createElement('div');
+                let tsBlock = document.createElement('details');
+                tsBlock.className = 'ts-block';
+                let tsKey = secId + '_ts_' + ts.id;
+                if (tsOpen[tsKey] !== false) tsBlock.open = true;
+                tsBlock.addEventListener('toggle', () => { tsOpen[tsKey] = tsBlock.open; });
+
+                let tsHeader = document.createElement('summary');
                 tsHeader.className = 'ts-header';
                 let tsNum = document.createElement('span'); tsNum.className = 'ts-num'; tsNum.textContent = tsIdx + 1;
                 let tsTime = document.createElement('span'); tsTime.className = 'ts-time'; tsTime.textContent = fmtTS(ts);
                 let tsAct = document.createElement('span'); tsAct.className = 'ts-actions';
+                tsAct.appendChild(reorderBtns(ts.id, tsIdx, s.timeSlots.length, (id, dir) => moveTS(secId, id, dir)));
                 tsAct.appendChild(iconBtn('person', true, '수강생 추가', () => lf(secId, ts.id)));
                 tsAct.appendChild(iconSep());
                 tsAct.appendChild(iconBtn('pencil', false, '시간대 편집', () => openEditTimeSlotModal(secId, ts.id)));
                 tsAct.appendChild(iconSep());
                 tsAct.appendChild(iconBtn('trash', false, '시간대 삭제', () => deleteTimeSlot(secId, ts.id)));
                 tsHeader.appendChild(tsNum); tsHeader.appendChild(tsTime); tsHeader.appendChild(tsAct);
-                details.appendChild(tsHeader);
+                tsBlock.appendChild(tsHeader);
 
                 let list = document.createElement('div');
                 list.className = 'slt'; list.dataset.secid = secId; list.dataset.tsid = ts.id;
@@ -1575,7 +1672,7 @@
                     setupLongPressDrag(card, secId, ts.id, idx);
                     list.appendChild(card);
                 });
-                details.appendChild(list);
+                tsBlock.appendChild(list);
 
                 if (ts.stopped.length > 0) {
                     let stKey = secId + '_' + ts.id;
@@ -1588,8 +1685,9 @@
                     let stoppedList = document.createElement('div');
                     stoppedList.className = 'slt stl'; stoppedList.style.marginTop = '8px';
                     ts.stopped.forEach(sid => stoppedList.appendChild(le(secId, ts.id, sid, true)));
-                    zz.appendChild(stoppedList); details.appendChild(zz);
+                    zz.appendChild(stoppedList); tsBlock.appendChild(zz);
                 }
+                details.appendChild(tsBlock);
             });
 
             wrapper.appendChild(details);
